@@ -1,4 +1,4 @@
-# harness
+# AGENT JARVIS
 
 A framework-free agent harness for learning how multi-agent, multi-skill, and
 MCP-connected systems work under the hood. Runs local models via
