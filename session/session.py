@@ -7,7 +7,7 @@ from openinference.semconv.trace import SpanAttributes
 from opentelemetry import trace
 
 from config.settings import MAX_TURNS, MODEL
-from memory.store import init_db, save_session
+from memory.store import init_db, register_session, save_session
 from permission.permission import check
 from provider.ollama import complete
 from session.event import Event
@@ -31,6 +31,7 @@ class Session:
         self.system_prompt = load_system_prompt()
         self.messages = messages if messages is not None else [{"role": "system", "content": self.system_prompt}]
         init_db()
+        register_session(self.session_id, self.date, self.project, MODEL)
 
     def set_system_prompt(self, text: str) -> None:
         self.system_prompt = text

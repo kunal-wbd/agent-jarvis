@@ -42,6 +42,19 @@ def init_db() -> None:
                 pass  # column already exists
 
 
+def register_session(session_id: str, date: str, project: str | None, model: str) -> None:
+    """Insert a session row immediately on creation so find_session can locate it."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT OR IGNORE INTO sessions (id, date, project, started_at, model, turn_count)
+            VALUES (?, ?, ?, ?, ?, 0)
+            """,
+            (session_id, date, project, now, model),
+        )
+
+
 def find_session(date: str, project: str | None) -> dict | None:
     """Return session metadata for the given date+project, or None if not found."""
     with _conn() as con:
