@@ -1,4 +1,3 @@
-import argparse
 import os
 import readline  # noqa: F401 — enables arrow keys, history, and line editing in input()
 from util.tracing import init_tracing
@@ -16,6 +15,9 @@ SLASH_HELP = """\
   /use <skill-name>    activate a skill for this session
   /active              show currently active skills
   /clear-skills        reset to base persona (no active skills)
+  /sessions            list past sessions
+  /resume <id>         resume a past session (load its message history)
+  /session             show current session ID
   quit / exit          end the session\
 """
 
@@ -53,8 +55,8 @@ def _available_skills() -> list[str]:
         return []
 
 
-def _handle_slash(cmd, session, active_skills, project_path_ref):
-    """Handle a slash command. Returns True if handled, False if unknown."""
+def _handle_slash(cmd, session_ref, active_skills, project_path_ref):
+    """Handle a slash command. Returns True if handled."""
     parts = cmd.split(None, 1)
     verb = parts[0].lower()
 
@@ -64,7 +66,7 @@ def _handle_slash(cmd, session, active_skills, project_path_ref):
                 print(f"  Active project: {project_path_ref[0]}")
             else:
                 print("  No project set. Use: /project <name>")
-            return False
+            return True
 
         name = parts[1].strip()
         path = os.path.join(PROJECTS_DIR, name)
@@ -72,7 +74,7 @@ def _handle_slash(cmd, session, active_skills, project_path_ref):
         os.makedirs(os.path.join(path, "acceptance-criteria"), exist_ok=True)
         os.makedirs(os.path.join(path, "decisions"), exist_ok=True)
         project_path_ref[0] = path
-        _rebuild_prompt(session, active_skills, path)
+        _rebuild_prompt(session_ref[0], active_skills, path)
         print(f"  Project: {name}  ({path})")
         return True
 
@@ -99,7 +101,7 @@ def _handle_slash(cmd, session, active_skills, project_path_ref):
             print(f"  Skill '{name}' not found. Run /skills to see what's available.")
             return True
         active_skills.add(name)
-        _rebuild_prompt(session, active_skills, project_path_ref[0])
+        _rebuild_prompt(session_ref[0], active_skills, project_path_ref[0])
         print(f"  Skill '{name}' activated. Active: {sorted(active_skills)}")
         return True
 
@@ -112,8 +114,37 @@ def _handle_slash(cmd, session, active_skills, project_path_ref):
 
     if verb == "/clear-skills":
         active_skills.clear()
-        _rebuild_prompt(session, active_skills, project_path_ref[0])
+        _rebuild_prompt(session_ref[0], active_skills, project_path_ref[0])
         print("  Skills cleared. Back to base persona.")
+        return True
+
+    if verb == "/sessions":
+        sessions = list_sessions()
+        if not sessions:
+            print("  No sessions recorded yet.")
+        else:
+            print(f"  {'ID':<38} {'Model':<15} {'Turns':<6} {'Started'}")
+            print("  " + "-" * 76)
+            for s in sessions:
+                print(f"  {s['id']:<38} {(s['model'] or ''):<15} {s['turn_count']:<6} {s['started_at']}")
+        return True
+
+    if verb == "/resume":
+        if len(parts) < 2:
+            print("Usage: /resume <session-id>")
+            return True
+        session_id = parts[1].strip()
+        messages = load_session(session_id)
+        if not messages:
+            print(f"  Session '{session_id}' not found. Run /sessions to see available sessions.")
+            return True
+        session_ref[0] = Session(messages=messages)
+        print(f"  Resumed session {session_id} ({len(messages)} messages loaded).")
+        print(f"  New session ID: {session_ref[0].session_id}")
+        return True
+
+    if verb == "/session":
+        print(f"  Current session ID: {session_ref[0].session_id}")
         return True
 
     if verb == "/help":
@@ -125,38 +156,14 @@ def _handle_slash(cmd, session, active_skills, project_path_ref):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="agent-jarvis harness")
-    parser.add_argument("--resume", metavar="SESSION_ID", help="resume a past session by ID")
-    parser.add_argument("--list-sessions", action="store_true", help="list past sessions and exit")
-    args = parser.parse_args()
-
     init_db()
 
-    if args.list_sessions:
-        sessions = list_sessions()
-        if not sessions:
-            print("No sessions recorded yet.")
-        else:
-            print(f"{'ID':<38} {'Model':<15} {'Turns':<6} {'Started'}")
-            print("-" * 80)
-            for s in sessions:
-                print(f"{s['id']:<38} {(s['model'] or ''):<15} {s['turn_count']:<6} {s['started_at']}")
-        raise SystemExit(0)
-
-    messages = None
-    if args.resume:
-        messages = load_session(args.resume)
-        if not messages:
-            print(f"Session '{args.resume}' not found. Starting fresh.")
-            messages = None
-        else:
-            print(f"Resuming session {args.resume} ({len(messages)} messages loaded)\n")
-
-    session = Session(messages=messages)
+    session_ref: list[Session] = [Session()]
     active_skills: set[str] = set()
-    project_path_ref: list[str | None] = [None]  # mutable reference so _handle_slash can update it
-    print(f"Session ID: {session.session_id}")
-    print("PM spec assistant ready.  /skills to browse, /use <name> to activate.\n")
+    project_path_ref: list[str | None] = [None]
+
+    print(f"Session ID: {session_ref[0].session_id}")
+    print("PM spec assistant ready.  /help for commands.\n")
 
     while True:
         try:
@@ -173,10 +180,10 @@ if __name__ == "__main__":
             break
 
         if user_input.startswith("/"):
-            _handle_slash(user_input, session, active_skills, project_path_ref)
+            _handle_slash(user_input, session_ref, active_skills, project_path_ref)
             print()
             continue
 
-        for event in session.send(user_input):
+        for event in session_ref[0].send(user_input):
             print_event(event)
         print()
