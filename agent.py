@@ -114,6 +114,10 @@ def _handle_slash(cmd, session, active_skills, project_path_ref):
         print("  Skills cleared. Back to base persona.")
         return True
 
+    if verb == "/help":
+        print(SLASH_HELP)
+        return True
+
     print(f"  Unknown command '{verb}'.\n{SLASH_HELP}")
     return True
 

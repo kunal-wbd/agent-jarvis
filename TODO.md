@@ -1,5 +1,18 @@
 # TODO
 
+## Tech Debt
+
+- [ ] **Hard-coded tool references in `load_system_prompt`** — `session/system.py:load_system_prompt`
+  builds the system prompt from `AGENTS_MD_PATH` but any description of available tools
+  is a static string baked into `agents.md` by hand. When a new tool module is added to
+  `tool/registry.py`, the system prompt does not automatically reflect it, causing drift
+  between what the model is told it can do and what `SCHEMAS` actually exposes.
+  Fix: derive the tool list at runtime from `tool/registry.py:SCHEMAS` (name +
+  description fields) and inject it as a generated section in the system prompt, so
+  `agents.md` only carries agent-level instructions, not a tool inventory.
+  **Priority:** Medium — currently low risk (small tool set) but will cause silent model
+  confusion as tools expand.
+
 ## Short term
 
 - [ ] **Short-term memory optimization** — the full message history is sent to the model
