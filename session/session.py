@@ -1,6 +1,7 @@
 import json
 import uuid
 from collections.abc import Iterator
+from datetime import date as _date_type
 
 from openinference.semconv.trace import SpanAttributes
 from opentelemetry import trace
@@ -18,8 +19,15 @@ _tracer = get_tracer("session")
 
 
 class Session:
-    def __init__(self, messages: list[dict] | None = None):
-        self.session_id = str(uuid.uuid4())
+    def __init__(
+        self,
+        messages: list[dict] | None = None,
+        session_id: str | None = None,
+        project: str | None = None,
+    ):
+        self.session_id = session_id or str(uuid.uuid4())
+        self.date = _date_type.today().isoformat()
+        self.project = project
         self.system_prompt = load_system_prompt()
         self.messages = messages if messages is not None else [{"role": "system", "content": self.system_prompt}]
         init_db()
@@ -27,6 +35,9 @@ class Session:
     def set_system_prompt(self, text: str) -> None:
         self.system_prompt = text
         self.messages[0] = {"role": "system", "content": text}
+
+    def set_project(self, project: str) -> None:
+        self.project = project
 
     def send(self, user_message: str) -> Iterator[Event]:
         self.messages.append({"role": "user", "content": user_message})
@@ -43,7 +54,7 @@ class Session:
                     root.set_attribute(SpanAttributes.OUTPUT_VALUE, response.text)
                     root.set_status(trace.StatusCode.OK)
                     yield Event("text", {"text": response.text})
-                    save_session(self.session_id, self.messages, MODEL)
+                    save_session(self.session_id, self.messages, MODEL, self.date, self.project)
                     return
 
                 if response.text:
@@ -69,5 +80,5 @@ class Session:
                     yield Event("tool_result", {"name": call["name"], "result": result})
 
             root.set_status(trace.StatusCode.ERROR, "max turns reached")
-            save_session(self.session_id, self.messages, MODEL)
+            save_session(self.session_id, self.messages, MODEL, self.date, self.project)
             yield Event("max_turns", {})

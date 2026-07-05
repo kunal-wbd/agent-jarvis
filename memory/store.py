@@ -1,5 +1,4 @@
 import sqlite3
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,6 +16,8 @@ def init_db() -> None:
         con.executescript("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id          TEXT PRIMARY KEY,
+                date        TEXT NOT NULL,
+                project     TEXT,
                 started_at  TEXT NOT NULL,
                 ended_at    TEXT,
                 model       TEXT,
@@ -33,20 +34,45 @@ def init_db() -> None:
                 created_at  TEXT NOT NULL
             );
         """)
+        # Add columns to existing DBs that predate this schema change.
+        for col, definition in [("date", "TEXT NOT NULL DEFAULT ''"), ("project", "TEXT")]:
+            try:
+                con.execute(f"ALTER TABLE sessions ADD COLUMN {col} {definition}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
 
-def save_session(session_id: str, messages: list[dict], model: str) -> None:
+def find_session(date: str, project: str | None) -> dict | None:
+    """Return session metadata for the given date+project, or None if not found."""
+    with _conn() as con:
+        row = con.execute(
+            "SELECT id, date, project, started_at, model, turn_count FROM sessions "
+            "WHERE date = ? AND project IS ? ORDER BY started_at DESC LIMIT 1",
+            (date, project),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def save_session(
+    session_id: str,
+    messages: list[dict],
+    model: str,
+    date: str,
+    project: str | None = None,
+) -> None:
     now = datetime.now(timezone.utc).isoformat()
     user_turns = sum(1 for m in messages if m["role"] == "user")
 
     with _conn() as con:
         con.execute(
             """
-            INSERT INTO sessions (id, started_at, ended_at, model, turn_count)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET ended_at=excluded.ended_at, turn_count=excluded.turn_count
+            INSERT INTO sessions (id, date, project, started_at, ended_at, model, turn_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                ended_at   = excluded.ended_at,
+                turn_count = excluded.turn_count
             """,
-            (session_id, now, now, model, user_turns),
+            (session_id, date, project, now, now, model, user_turns),
         )
         con.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
         con.executemany(
@@ -55,14 +81,7 @@ def save_session(session_id: str, messages: list[dict], model: str) -> None:
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             [
-                (
-                    session_id,
-                    i,
-                    m["role"],
-                    m.get("content", ""),
-                    m.get("tool_name"),
-                    now,
-                )
+                (session_id, i, m["role"], m.get("content", ""), m.get("tool_name"), now)
                 for i, m in enumerate(messages)
             ],
         )
@@ -71,7 +90,8 @@ def save_session(session_id: str, messages: list[dict], model: str) -> None:
 def load_session(session_id: str) -> list[dict]:
     with _conn() as con:
         rows = con.execute(
-            "SELECT role, content, tool_name FROM messages WHERE session_id = ? ORDER BY turn_index",
+            "SELECT role, content, tool_name FROM messages "
+            "WHERE session_id = ? ORDER BY turn_index",
             (session_id,),
         ).fetchall()
     if not rows:
@@ -85,6 +105,7 @@ def load_session(session_id: str) -> list[dict]:
 def list_sessions() -> list[dict]:
     with _conn() as con:
         rows = con.execute(
-            "SELECT id, started_at, ended_at, model, turn_count FROM sessions ORDER BY started_at DESC"
+            "SELECT id, date, project, started_at, ended_at, model, turn_count "
+            "FROM sessions ORDER BY started_at DESC"
         ).fetchall()
     return [dict(row) for row in rows]

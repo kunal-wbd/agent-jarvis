@@ -6,7 +6,8 @@ init_tracing()  # must run before any tracer is created
 from session.session import Session  # noqa: E402
 from session.system import SKILLS_DIR, load_system_prompt  # noqa: E402
 from config.settings import PROJECTS_DIR
-from memory.store import init_db, list_sessions, load_session  # noqa: E402
+from memory.store import init_db, find_session, list_sessions, load_session  # noqa: E402
+from datetime import date as _date_type
 
 SLASH_HELP = """\
   /project <name>      set active project (creates directory if needed)
@@ -62,8 +63,9 @@ def _handle_slash(cmd, session_ref, active_skills, project_path_ref):
 
     if verb == "/project":
         if len(parts) < 2:
-            if project_path_ref[0]:
-                print(f"  Active project: {project_path_ref[0]}")
+            s = session_ref[0]
+            if s.project:
+                print(f"  Active project: {s.project}  (session {s.session_id})")
             else:
                 print("  No project set. Use: /project <name>")
             return True
@@ -74,8 +76,22 @@ def _handle_slash(cmd, session_ref, active_skills, project_path_ref):
         os.makedirs(os.path.join(path, "acceptance-criteria"), exist_ok=True)
         os.makedirs(os.path.join(path, "decisions"), exist_ok=True)
         project_path_ref[0] = path
+
+        today = _date_type.today().isoformat()
+        existing = find_session(today, name)
+        if existing:
+            messages = load_session(existing["id"])
+            session_ref[0] = Session(
+                messages=messages,
+                session_id=existing["id"],
+                project=name,
+            )
+            print(f"  Project: {name}  — resuming today's session ({existing['id']}, {existing['turn_count']} turns)")
+        else:
+            session_ref[0] = Session(project=name)
+            print(f"  Project: {name}  — new session ({session_ref[0].session_id})")
+
         _rebuild_prompt(session_ref[0], active_skills, path)
-        print(f"  Project: {name}  ({path})")
         return True
 
     if verb == "/skills":
@@ -123,10 +139,11 @@ def _handle_slash(cmd, session_ref, active_skills, project_path_ref):
         if not sessions:
             print("  No sessions recorded yet.")
         else:
-            print(f"  {'ID':<38} {'Model':<15} {'Turns':<6} {'Started'}")
+            print(f"  {'Date':<12} {'Project':<20} {'Turns':<6} {'ID'}")
             print("  " + "-" * 76)
             for s in sessions:
-                print(f"  {s['id']:<38} {(s['model'] or ''):<15} {s['turn_count']:<6} {s['started_at']}")
+                project = (s["project"] or "(none)")[:19]
+                print(f"  {s['date']:<12} {project:<20} {s['turn_count']:<6} {s['id']}")
         return True
 
     if verb == "/resume":
