@@ -1,10 +1,12 @@
 import json
+import uuid
 from collections.abc import Iterator
 
 from openinference.semconv.trace import SpanAttributes
 from opentelemetry import trace
 
-from config.settings import MAX_TURNS
+from config.settings import MAX_TURNS, MODEL
+from memory.store import init_db, save_session
 from permission.permission import check
 from provider.ollama import complete
 from session.event import Event
@@ -16,9 +18,11 @@ _tracer = get_tracer("session")
 
 
 class Session:
-    def __init__(self):
+    def __init__(self, messages: list[dict] | None = None):
+        self.session_id = str(uuid.uuid4())
         self.system_prompt = load_system_prompt()
-        self.messages = [{"role": "system", "content": self.system_prompt}]
+        self.messages = messages if messages is not None else [{"role": "system", "content": self.system_prompt}]
+        init_db()
 
     def set_system_prompt(self, text: str) -> None:
         self.system_prompt = text
@@ -39,6 +43,7 @@ class Session:
                     root.set_attribute(SpanAttributes.OUTPUT_VALUE, response.text)
                     root.set_status(trace.StatusCode.OK)
                     yield Event("text", {"text": response.text})
+                    save_session(self.session_id, self.messages, MODEL)
                     return
 
                 if response.text:
@@ -64,4 +69,5 @@ class Session:
                     yield Event("tool_result", {"name": call["name"], "result": result})
 
             root.set_status(trace.StatusCode.ERROR, "max turns reached")
+            save_session(self.session_id, self.messages, MODEL)
             yield Event("max_turns", {})

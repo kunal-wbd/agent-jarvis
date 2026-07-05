@@ -1,3 +1,4 @@
+import argparse
 import os
 import readline  # noqa: F401 — enables arrow keys, history, and line editing in input()
 from util.tracing import init_tracing
@@ -6,6 +7,7 @@ init_tracing()  # must run before any tracer is created
 from session.session import Session  # noqa: E402
 from session.system import SKILLS_DIR, load_system_prompt  # noqa: E402
 from config.settings import PROJECTS_DIR
+from memory.store import init_db, list_sessions, load_session  # noqa: E402
 
 SLASH_HELP = """\
   /project <name>      set active project (creates directory if needed)
@@ -123,9 +125,37 @@ def _handle_slash(cmd, session, active_skills, project_path_ref):
 
 
 if __name__ == "__main__":
-    session = Session()
+    parser = argparse.ArgumentParser(description="agent-jarvis harness")
+    parser.add_argument("--resume", metavar="SESSION_ID", help="resume a past session by ID")
+    parser.add_argument("--list-sessions", action="store_true", help="list past sessions and exit")
+    args = parser.parse_args()
+
+    init_db()
+
+    if args.list_sessions:
+        sessions = list_sessions()
+        if not sessions:
+            print("No sessions recorded yet.")
+        else:
+            print(f"{'ID':<38} {'Model':<15} {'Turns':<6} {'Started'}")
+            print("-" * 80)
+            for s in sessions:
+                print(f"{s['id']:<38} {(s['model'] or ''):<15} {s['turn_count']:<6} {s['started_at']}")
+        raise SystemExit(0)
+
+    messages = None
+    if args.resume:
+        messages = load_session(args.resume)
+        if not messages:
+            print(f"Session '{args.resume}' not found. Starting fresh.")
+            messages = None
+        else:
+            print(f"Resuming session {args.resume} ({len(messages)} messages loaded)\n")
+
+    session = Session(messages=messages)
     active_skills: set[str] = set()
     project_path_ref: list[str | None] = [None]  # mutable reference so _handle_slash can update it
+    print(f"Session ID: {session.session_id}")
     print("PM spec assistant ready.  /skills to browse, /use <name> to activate.\n")
 
     while True:
