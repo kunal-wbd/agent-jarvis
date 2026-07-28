@@ -6,7 +6,10 @@ init_tracing()  # must run before any tracer is created
 from session.session import Session  # noqa: E402
 from session.system import SKILLS_DIR, load_system_prompt  # noqa: E402
 from config.settings import PROJECTS_DIR
-from memory.store import init_db, find_session, list_sessions, load_session  # noqa: E402
+from memory.store import (  # noqa: E402
+    init_db, find_session, get_session, list_sessions, load_project_history, load_session,
+)
+from tool.registry import run_tool  # noqa: E402
 from datetime import date as _date_type
 
 SLASH_HELP = """\
@@ -19,7 +22,14 @@ SLASH_HELP = """\
   /sessions            list past sessions
   /resume <id>         resume a past session (load its message history)
   /session             show current session ID
+  /wiki source         show the session history the wiki is built from
+  /wiki source --full  show it exactly as the model would receive it
   quit / exit          end the session\
+"""
+
+WIKI_HELP = """\
+  /wiki source         summary of this project's recorded conversations
+  /wiki source --full  the full transcript text, as the model receives it\
 """
 
 def _rebuild_prompt(session, active_skills, project_path):
@@ -54,6 +64,60 @@ def _available_skills() -> list[str]:
         )
     except FileNotFoundError:
         return []
+
+
+def _handle_wiki(args: str, session_ref) -> bool:
+    """Handle /wiki subcommands. `args` is everything after the verb."""
+    parts = args.split(None, 1)
+    action = parts[0].lower() if parts else ""
+    flags = parts[1].strip() if len(parts) > 1 else ""
+
+    if action != "source":
+        if action:
+            print(f"  Unknown wiki command '{action}'.")
+        print(WIKI_HELP)
+        return True
+
+    # The wiki is built from a project's conversations — without a project
+    # there is nothing to read.
+    project = session_ref[0].project
+    if not project:
+        print("  No active project. Run /project <name> first —")
+        print("  the wiki is built from a project's session history.")
+        return True
+
+    if flags in ("--full", "-f"):
+        # Route through the real tool so this shows exactly what the model sees.
+        print(run_tool("read_sessions", {"project": project}))
+        return True
+    if flags:
+        print(f"  Unknown option '{flags}'.\n{WIKI_HELP}")
+        return True
+
+    history = load_project_history(project)
+    if not history:
+        print(f"  No recorded conversations for '{project}' yet.")
+        print("  Have a conversation first, then run /wiki source again.")
+        return True
+
+    total_chars = sum(
+        len(m.get("content") or "")
+        for s in history
+        for m in s["messages"]
+        if m["role"] in ("user", "assistant")
+    )
+
+    print(f"  Session history for '{project}' — {len(history)} session(s), ~{total_chars:,} chars")
+    print()
+    print(f"  {'Date':<12} {'Turns':<6} {'Session ID':<38} Opening message")
+    print("  " + "-" * 100)
+    for s in history:
+        first = next((m["content"] for m in s["messages"] if m["role"] == "user"), "")
+        preview = " ".join(first.split())[:40]
+        print(f"  {s['date']:<12} {s['turn_count']:<6} {s['id']:<38} {preview}")
+    print()
+    print("  Run /wiki source --full to see the full text the model would read.")
+    return True
 
 
 def _handle_slash(cmd, session_ref, active_skills, project_path_ref):
@@ -151,18 +215,39 @@ def _handle_slash(cmd, session_ref, active_skills, project_path_ref):
             print("Usage: /resume <session-id>")
             return True
         session_id = parts[1].strip()
-        messages = load_session(session_id)
-        if not messages:
+        meta = get_session(session_id)
+        if meta is None:
             print(f"  Session '{session_id}' not found. Run /sessions to see available sessions.")
             return True
-        session_ref[0] = Session(messages=messages)
-        print(f"  Resumed session {session_id} ({len(messages)} messages loaded).")
-        print(f"  New session ID: {session_ref[0].session_id}")
+
+        messages = load_session(session_id)
+        if not messages:
+            print(f"  Session '{session_id}' has no recorded messages — nothing to resume.")
+            return True
+
+        # Continue the same session rather than forking a new one, and carry its
+        # project across so later saves stay attached to it.
+        project = meta["project"]
+        session_ref[0] = Session(
+            messages=messages,
+            session_id=session_id,
+            project=project,
+        )
+
+        if project:
+            project_path_ref[0] = os.path.join(PROJECTS_DIR, project)
+        _rebuild_prompt(session_ref[0], active_skills, project_path_ref[0])
+
+        where = f" in project '{project}'" if project else ""
+        print(f"  Resumed session {session_id}{where} ({len(messages)} messages loaded).")
         return True
 
     if verb == "/session":
         print(f"  Current session ID: {session_ref[0].session_id}")
         return True
+
+    if verb == "/wiki":
+        return _handle_wiki(parts[1] if len(parts) > 1 else "", session_ref)
 
     if verb == "/help":
         print(SLASH_HELP)

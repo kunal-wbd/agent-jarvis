@@ -124,6 +124,17 @@ def list_sessions() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def get_session(session_id: str) -> dict | None:
+    """Metadata for one session, or None if it does not exist."""
+    with _conn() as con:
+        row = con.execute(
+            "SELECT id, date, project, started_at, ended_at, model, turn_count "
+            "FROM sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def load_project_history(project: str) -> list[dict]:
     """Every conversation held for a project, across all dates, oldest first.
 
@@ -133,8 +144,10 @@ def load_project_history(project: str) -> list[dict]:
     """
     with _conn() as con:
         sessions = con.execute(
+            # Order by the session's own date first — started_at records when the
+            # row was written, which can disagree with the day it belongs to.
             "SELECT id, date, started_at, turn_count FROM sessions "
-            "WHERE project = ? ORDER BY started_at ASC",
+            "WHERE project = ? ORDER BY date ASC, started_at ASC",
             (project,),
         ).fetchall()
 
