@@ -122,3 +122,26 @@ def list_sessions() -> list[dict]:
             "FROM sessions ORDER BY started_at DESC"
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def load_project_history(project: str) -> list[dict]:
+    """Every conversation held for a project, across all dates, oldest first.
+
+    Sessions that were registered but never used (no messages) are skipped —
+    they carry no knowledge. Each entry is:
+        {id, date, started_at, turn_count, messages: [{role, content, ...}]}
+    """
+    with _conn() as con:
+        sessions = con.execute(
+            "SELECT id, date, started_at, turn_count FROM sessions "
+            "WHERE project = ? ORDER BY started_at ASC",
+            (project,),
+        ).fetchall()
+
+    history = []
+    for s in sessions:
+        messages = load_session(s["id"])
+        if not messages:
+            continue
+        history.append({**dict(s), "messages": messages})
+    return history

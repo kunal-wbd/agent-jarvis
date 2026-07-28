@@ -16,6 +16,8 @@ import json
 import os
 import sys
 
+from memory.store import load_project_history
+
 
 # ---------------------------------------------------------------------------
 # Tool implementations
@@ -53,6 +55,88 @@ def _list_dir(path: str = ".") -> str:
     except OSError as e:
         return f"error: {e}"
 
+_MAX_MSG_CHARS = 2000
+
+
+def _read_sessions(project: str, max_chars: int = 20000) -> str:
+    """Return every past conversation for a project, oldest first.
+
+    Only user and assistant turns are included — the system prompt is
+    boilerplate and tool results are mostly noise for knowledge extraction.
+    """
+    try:
+        history = load_project_history(project)
+    except Exception as e:
+        return f"error reading sessions: {e}"
+
+    if not history:
+        return f"No recorded conversations for project '{project}'."
+
+    rendered = [r for r in (_render_session(s) for s in history) if r]
+    if not rendered:
+        return f"No conversation content recorded for project '{project}'."
+
+    # Fill the budget newest-first so recent decisions survive truncation,
+    # then flip back to chronological order for the model to read.
+    kept, total = [], 0
+    for block in reversed(rendered):
+        if kept and total + len(block) > max_chars:
+            break
+        kept.append(block[:max_chars])
+        total += len(block)
+    kept.reverse()
+
+    header = f"# Conversation history for '{project}' ({len(kept)} sessions, oldest first)"
+    dropped = len(rendered) - len(kept)
+    if dropped:
+        header += f"\n\n[{dropped} earlier session(s) omitted — {max_chars} char limit]"
+    return header + "\n\n" + "\n\n---\n\n".join(kept)
+
+
+def _render_session(session: dict) -> str:
+    """Format one session as text. Returns '' if it has no usable turns."""
+    lines = []
+    for m in session["messages"]:
+        if m["role"] not in ("user", "assistant"):
+            continue
+        text = (m.get("content") or "").strip()
+        if not text:
+            continue
+        if len(text) > _MAX_MSG_CHARS:
+            text = text[:_MAX_MSG_CHARS] + " [...truncated]"
+        lines.append(f"{m['role'].upper()}: {text}")
+
+    if not lines:
+        return ""
+    return f"## Session {session['date']} ({session['id']})\n\n" + "\n\n".join(lines)
+
+
+def _llm_ingest(path: str) -> str:
+    """ Ingests source document into LLM Wiki 
+    Usage:
+    python tools/ingest.py <path-to-source>
+    python tools/ingest.py raw/articles/my-article.md
+    python tools/ingest.py report.pdf                  # auto-converts to .md
+    python tools/ingest.py slides.pptx notes.docx       # batch, mixed formats
+    python tools/ingest.py raw/mixed/ --no-convert      # skip auto-conversion
+    python tools/ingest.py --validate-only              # run validation only
+
+    Supported formats (auto-converted via markitdown):
+        .pdf .docx .pptx .xlsx .html .htm .txt .csv .json .xml
+        .rst .rtf .epub .ipynb .yaml .yml .tsv .wav .mp3
+
+    The LLM reads the source, extracts knowledge, and updates the wiki:
+    - Creates wiki/sources/<slug>.md
+    - Updates wiki/index.md
+    - Updates wiki/overview.md (if warranted)
+    - Creates/updates entity and concept pages
+    - Appends to wiki/log.md
+    - Flags contradictions
+    - Runs post-ingest validation (broken links, index coverage)
+    """
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    paths_to_process = []
+    
 
 # ---------------------------------------------------------------------------
 # MCP tool registry (MCP uses inputSchema, not parameters)
@@ -97,6 +181,32 @@ _TOOLS = {
         },
         "handler": _list_dir,
     },
+    "read_sessions": {
+        "name": "read_sessions",
+        "description": (
+            "Read every past conversation recorded for a project, across all dates, "
+            "oldest first. Use this to build or update the project's wiki from what "
+            "was actually discussed. Returns user and assistant turns only."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project": {
+                    "type": "string",
+                    "description": "Project name, e.g. 'checkout'. This is the /project name, not a path.",
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": "Cap on total returned characters. Defaults to 20000.",
+                },
+            },
+            "required": ["project"],
+        },
+        "handler": _read_sessions,
+    },
+    # llm_ingest is unregistered while _llm_ingest is still a stub — it returns
+    # None, which breaks the client's result join. Re-add this entry once the
+    # handler returns a string. See TODO.md.
 }
 
 

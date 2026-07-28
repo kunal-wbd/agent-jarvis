@@ -4,6 +4,7 @@ from config.settings import AGENTS_MD_PATH
 SKILLS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "skills")
 
 def load_system_prompt(active_skills: list[str] | None = None, project_path: str | None = None,) -> str:
+    """Load the system prompt, including active skills and project path."""
     try:
         base = open(AGENTS_MD_PATH).read().strip()
     except FileNotFoundError:

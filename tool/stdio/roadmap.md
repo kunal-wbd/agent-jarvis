@@ -61,6 +61,13 @@ when to choose this backend over scripts.
 | `read_file` | Read file contents by path |
 | `write_file` | Write or overwrite a file (creates parent dirs) |
 | `list_dir` | List files and subdirectories |
+| `read_sessions` | Read all past conversations for a project, across dates, oldest first |
+
+`read_sessions` is the bridge between the session store and the model: transcripts
+live in `memory.db`, which the model cannot reach on its own. It returns user and
+assistant turns only — system prompts are boilerplate and tool results are noise for
+knowledge extraction. When the total exceeds `max_chars` (default 20000), the newest
+sessions are kept so recent decisions survive truncation.
 
 ---
 

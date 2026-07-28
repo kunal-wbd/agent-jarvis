@@ -17,8 +17,8 @@ from util.tracing import get_tracer
 
 _tracer = get_tracer("session")
 
-
 class Session:
+    """Manages a conversation session with message history and tool execution."""
     def __init__(
         self,
         messages: list[dict] | None = None,
@@ -34,13 +34,16 @@ class Session:
         register_session(self.session_id, self.date, self.project, MODEL)
 
     def set_system_prompt(self, text: str) -> None:
+        """Set the system prompt and update the first message."""
         self.system_prompt = text
         self.messages[0] = {"role": "system", "content": text}
 
     def set_project(self, project: str) -> None:
+        """Set the project path for the session."""
         self.project = project
 
     def send(self, user_message: str) -> Iterator[Event]:
+        """Send a user message to the session and yield events."""
         self.messages.append({"role": "user", "content": user_message})
 
         with _tracer.start_as_current_span("chain") as root:
