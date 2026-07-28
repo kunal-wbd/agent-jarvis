@@ -44,20 +44,21 @@ Other tool-calling-capable models available via Ollama: `llama3.1`, `mistral-nem
 
 ## 2. Set up the Python environment
 
+All dependencies are declared in `pyproject.toml` and pinned in `uv.lock`, so a single
+command creates the environment and installs everything reproducibly:
+
 ```bash
-# Create the virtual environment
-uv venv .venv
-
-# Activate it (run this in every new terminal session)
-source .venv/bin/activate
-
-# Install all dependencies
-uv pip install arize-phoenix \
-               opentelemetry-sdk \
-               opentelemetry-exporter-otlp-proto-http \
-               openinference-semantic-conventions \
-               ollama
+uv sync --extra dev
 ```
+
+Then activate it (once per terminal session):
+
+```bash
+source .venv/bin/activate
+```
+
+If imports start failing with `ModuleNotFoundError`, the venv has drifted from the
+lockfile — re-run `uv sync --extra dev` to restore it.
 
 Dependencies explained:
 
@@ -68,6 +69,7 @@ Dependencies explained:
 | `opentelemetry-sdk` | Core OTEL span/trace machinery |
 | `opentelemetry-exporter-otlp-proto-http` | Ships spans to Phoenix over HTTP |
 | `openinference-semantic-conventions` | LLM-specific span attribute names (model, tokens, tool name) |
+| `pytest` (dev extra) | Test runner — `python -m pytest tests/` |
 
 ---
 
@@ -80,16 +82,25 @@ source .venv/bin/activate
 phoenix serve
 ```
 
-Phoenix starts on **http://localhost:6006** by default. Open that URL in your browser.
-Traces appear after each REPL interaction.
+Phoenix starts on **http://localhost:6006** by default. Open that URL in your browser
+and select the **harness** project — traces appear there after each REPL interaction.
 
-To use a different port:
+Phoenix is optional. If it is not running, the harness prints a one-line notice at
+startup and continues without tracing:
 
-```bash
-PHOENIX_PORT=7007 phoenix serve
+```
+[tracing] Phoenix not reachable at http://localhost:6006 — running without traces.
+[tracing] Start it with:  phoenix serve
 ```
 
-If you change the port, update `PHOENIX_ENDPOINT` in `util/tracing.py` to match.
+To use a different port, tell both sides:
+
+```bash
+PHOENIX_PORT=7007 phoenix serve                    # terminal running Phoenix
+PHOENIX_HOST=http://localhost:7007 python agent.py # terminal running the agent
+```
+
+To turn tracing off entirely: `TRACING_ENABLED=0 python agent.py`
 
 ---
 
@@ -165,7 +176,11 @@ variables — no file edits needed:
 | `HARNESS_MODEL` | `qwen3:8b` | Ollama model name |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `HARNESS_MAX_TURNS` | `10` | Max tool-call loop iterations before giving up |
-| `AGENTS_MD_PATH` | `AGENTS.md` | Path to the agent persona file |
+| `AGENTS_MD_PATH` | `agents.md` | Path to the agent persona file |
+| `HARNESS_PROJECTS_DIR` | `PRD` | Root directory for per-project workspaces |
+| `PHOENIX_HOST` | `http://localhost:6006` | Phoenix collector URL |
+| `PHOENIX_PROJECT` | `harness` | Phoenix project spans are grouped under |
+| `TRACING_ENABLED` | `1` | Set to `0` to disable tracing entirely |
 
 Example — run against a different model:
 
