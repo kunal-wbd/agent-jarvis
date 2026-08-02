@@ -32,9 +32,27 @@ WIKI_HELP = """\
   /wiki source --full  the full transcript text, as the model receives it\
 """
 
+def _project_listing(project_path: str) -> str:
+    """Shallow tree of a project directory, via the same list_dir tool the model uses.
+
+    Root + immediate subdirectories only (specs/, decisions/, wiki/, ...) — enough
+    to surface what exists without walking arbitrarily deep.
+    """
+    blocks = [run_tool("list_dir", {"path": project_path})]
+    try:
+        for entry in sorted(os.listdir(project_path)):
+            full = os.path.join(project_path, entry)
+            if os.path.isdir(full) and not entry.startswith("."):
+                blocks.append(run_tool("list_dir", {"path": full}))
+    except OSError:
+        pass
+    return "\n\n".join(blocks)
+
+
 def _rebuild_prompt(session, active_skills, project_path):
+    listing = _project_listing(project_path) if project_path else None
     session.set_system_prompt(
-        load_system_prompt(list(active_skills), project_path)
+        load_system_prompt(list(active_skills), project_path, listing)
     )
 
 def print_event(event) -> None:
