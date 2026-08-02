@@ -3,16 +3,23 @@ from config.settings import AGENTS_MD_PATH
 
 SKILLS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "skills")
 
-def load_system_prompt(active_skills: list[str] | None = None, project_path: str | None = None,) -> str:
-    """Load the system prompt, including active skills and project path."""
+def load_system_prompt(
+    active_skills: list[str] | None = None,
+    project_path: str | None = None,
+    project_listing: str | None = None,
+) -> str:
+    """Load the system prompt, including active skills, project path, and project files."""
     try:
         base = open(AGENTS_MD_PATH).read().strip()
     except FileNotFoundError:
         base = ""
 
     if project_path:
-        base += f"\n\n## Active project\n\nAll file operations are scoped to: `{project_path}`\nUse this path as the root when calling `write_file`, `list_dir`, or `read_file`.\nAlways call `list_dir` on this directory before creating any new file."
-        
+        base += f"\n\n## Active project\n\nAll file operations are scoped to: `{project_path}`\nUse this path as the root when calling `write_file`, `list_dir`, or `read_file`."
+
+    if project_listing:
+        base += f"\n\n## Project files\n\nThese already exist — check before writing anything new:\n\n{project_listing}"
+
     if not active_skills:
         return base
 

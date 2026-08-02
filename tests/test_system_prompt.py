@@ -73,6 +73,25 @@ def test_missing_skill_file_skipped_silently(tmp_path, monkeypatch):
     assert "# PM" in prompt
 
 
+def test_project_listing_injected(tmp_path, monkeypatch):
+    agents = tmp_path / "agents.md"
+    agents.write_text("# PM")
+    monkeypatch.setattr("session.system.AGENTS_MD_PATH", str(agents))
+
+    prompt = load_system_prompt(project_path="/p/checkout", project_listing="specs/\n  checkout-prd.md")
+    assert "Project files" in prompt
+    assert "checkout-prd.md" in prompt
+
+
+def test_no_listing_omits_section(tmp_path, monkeypatch):
+    agents = tmp_path / "agents.md"
+    agents.write_text("# PM")
+    monkeypatch.setattr("session.system.AGENTS_MD_PATH", str(agents))
+
+    prompt = load_system_prompt(project_path="/p/checkout")
+    assert "Project files" not in prompt
+
+
 def test_project_and_skill_both_present(tmp_path, monkeypatch):
     agents = tmp_path / "agents.md"
     agents.write_text("# PM")
